@@ -1,0 +1,9 @@
+ai-calorie-predictor/
+├─ model/                # created by train.py
+├─ static/
+│  └─ index.html
+├─ train.py
+├─ app.py
+├─ requirements.txt
+├─ README.md
+└─ Dockerfile  (optional)

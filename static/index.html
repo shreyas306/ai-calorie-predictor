@@ -1,0 +1,161 @@
+<!-- static/index.html (replace your current file) -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>AI Calorie & Nutrition Predictor + Meal Plan</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; max-width:900px; margin:20px auto; padding:12px; }
+    label { display:block; margin-top:12px; }
+    input, select { padding:8px; width:100%; max-width:320px; }
+    button { margin-top:12px; padding:10px 16px; }
+    .result { margin-top:18px; padding:12px; border:1px solid #ddd; border-radius:6px; }
+    img.chart { max-width:100%; height:auto; margin-top:12px; border:1px solid #eee; padding:6px; border-radius:6px;}
+    .meal-block { margin-top:12px; border:1px solid #eee; padding:10px; border-radius:6px; }
+    .meal-title { font-weight:bold; margin-bottom:6px; }
+  </style>
+</head>
+<body>
+  <h1>AI Calorie & Nutrition Predictor + Meal Plan</h1>
+  <p>Enter details to predict daily calories and generate a sample meal plan.</p>
+
+  <div>
+    <label>Age
+      <input id="age" type="number" value="25" min="10" max="100" />
+    </label>
+
+    <label>Gender
+      <select id="gender">
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+      </select>
+    </label>
+
+    <label>Height (cm)
+      <input id="height_cm" type="number" value="170" />
+    </label>
+
+    <label>Weight (kg)
+      <input id="weight_kg" type="number" value="70" />
+    </label>
+
+    <label>Activity Level
+      <select id="activity_level">
+        <option value="0">0 - Sedentary</option>
+        <option value="1">1 - Lightly active</option>
+        <option value="2" selected>2 - Moderately active</option>
+        <option value="3">3 - Very active</option>
+        <option value="4">4 - Extra active</option>
+      </select>
+    </label>
+
+    <label>Goal
+      <select id="goal">
+        <option value="maintenance" selected>Maintenance</option>
+        <option value="weight_loss">Weight loss</option>
+        <option value="muscle_gain">Muscle gain</option>
+      </select>
+    </label>
+
+    <button id="predictBtn">Predict</button>
+  </div>
+
+  <div id="output" class="result" style="display:none;"></div>
+  <div id="mealPlan" style="display:none; margin-top:12px;"></div>
+
+  <script>
+    const output = document.getElementById('output');
+    const mealPlanDiv = document.getElementById('mealPlan');
+
+    document.getElementById('predictBtn').addEventListener('click', async () => {
+      const payload = {
+        age: Number(document.getElementById('age').value),
+        gender: document.getElementById('gender').value,
+        height_cm: Number(document.getElementById('height_cm').value),
+        weight_kg: Number(document.getElementById('weight_kg').value),
+        activity_level: Number(document.getElementById('activity_level').value),
+        goal: document.getElementById('goal').value
+      };
+
+      output.style.display = 'block';
+      output.innerHTML = 'Predicting...';
+      mealPlanDiv.style.display = 'none';
+      mealPlanDiv.innerHTML = '';
+
+      try {
+        const res = await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          output.innerHTML = 'Error: ' + (err.error || res.statusText);
+          return;
+        }
+
+        const data = await res.json();
+        const cal = data.predicted_calories_kcal;
+        output.innerHTML = `
+          <h3>Estimated Daily Calories: <strong>${cal} kcal</strong></h3>
+          <p>Macros (approx):</p>
+          <ul>
+            <li>Carbs: ${data.macros.carbs_g} g (${data.macros.carbs_pct}%)</li>
+            <li>Protein: ${data.macros.protein_g} g (${data.macros.protein_pct}%)</li>
+            <li>Fat: ${data.macros.fat_g} g (${data.macros.fat_pct}%)</li>
+          </ul>
+          <button id="mealBtn">Get Meal Plan</button>
+        `;
+
+        // fetch chart png
+        const img = document.createElement('img');
+        img.className = 'chart';
+        img.alt = 'Macro chart';
+        img.src = `/chart.png?calories=${cal}&goal=${payload.goal}&_ts=${Date.now()}`;
+        output.appendChild(img);
+
+        // attach click handler to meal button
+        document.getElementById('mealBtn').addEventListener('click', async () => {
+          mealPlanDiv.style.display = 'block';
+          mealPlanDiv.innerHTML = '<p>Generating meal plan...</p>';
+          try {
+            const mpRes = await fetch(`/mealplan?calories=${cal}&goal=${payload.goal}`);
+            const mp = await mpRes.json();
+            renderMealPlan(mp);
+          } catch (e) {
+            mealPlanDiv.innerHTML = 'Meal plan failed: ' + e.message;
+          }
+        });
+
+      } catch (e) {
+        output.innerHTML = 'Request failed: ' + e.message;
+      }
+    });
+
+    function renderMealPlan(mp) {
+      mealPlanDiv.innerHTML = `
+        <h3>Sample Meal Plan</h3>
+        <p>Target: ${mp.total_target_kcal} kcal • Planned: ${mp.total_planned_kcal} kcal • Difference: ${mp.difference_kcal} kcal</p>
+      `;
+      const meals = mp.meals;
+      for (const [mealName, items] of Object.entries(meals)) {
+        const block = document.createElement('div');
+        block.className = 'meal-block';
+        block.innerHTML = `<div class="meal-title">${capitalize(mealName)}</div>`;
+        const ul = document.createElement('ul');
+        items.forEach(it => {
+          const li = document.createElement('li');
+          li.innerHTML = `${it.name} — ${it.grams} g — ${it.kcal} kcal (${it.category || ''})`;
+          ul.appendChild(li);
+        });
+        block.appendChild(ul);
+        mealPlanDiv.appendChild(block);
+      }
+    }
+
+    function capitalize(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+  </script>
+</body>
+</html>
